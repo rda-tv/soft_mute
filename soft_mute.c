@@ -25,7 +25,7 @@ typedef enum {
 #define APP_OUTPUT_BUFF_SIZE APP_INPUT_BUFF_SIZE*4
 #define FADE_LATENCY_SAMPLE 24
 #define FADE_STEP           0x2
-#define MUTE_DATA_DELAY     0x200
+#define MUTE_DATA_DELAY     0x400
 
 UINT32 soft_mute_ctrl;
  SERV_APP_STATE state;
@@ -48,8 +48,14 @@ VOID serv_app_msg_soft_mute(BOOL on)
             OutBuf=&av_ifc_buff_out[0];
             curAddr =(UINT32 )&av_ifc_buff_out[128];// (dev_aio_ch_get_ifc_cur(g_app_cxt->aud_app_path.audio_ch_out)+0x8)&0xfffffff8; //insure fade process aligned to 8;
             fade_point=((UINT32 *)curAddr-OutBuf+FADE_LATENCY_SAMPLE*2);
+		 if(fade_point<=APP_OUTPUT_BUFF_SIZE) {
+                fade_sample_num=(APP_OUTPUT_BUFF_SIZE-fade_point)&(buff_size/4 - 1);
+            } else {
+                fade_sample_num=((buff_size/4 - 1)+APP_OUTPUT_BUFF_SIZE-fade_point+MUTE_DATA_DELAY)&(buff_size/4 - 1);
+            }
+            if(fade_sample_num<soft_mute_ctrl/FADE_STEP)
             fade_sample_num = soft_mute_ctrl/FADE_STEP;
-            for(i=0; i < (fade_sample_num + MUTE_DATA_DELAY); i++,fade_point +=2) {
+            for(i=0; i < (fade_sample_num/2 ); i++,fade_point +=2) {
                 data_l=OutBuf[ fade_point & (buff_size/4 - 1) ];
                 flag_l= data_l & (1<<31);
                 data_l=(INT16)((data_l&(~(1<<31)))>>8);
@@ -70,6 +76,7 @@ VOID serv_app_msg_soft_mute(BOOL on)
 
                 data_l = (data_l<<8)&(0x00ffffff);
                 data_r = (data_r<<8)&(0x00ffffff);
+
                 OutBuf[fade_point & (buff_size/4 - 1) ]=data_l|flag_l;
                 OutBuf[(fade_point+1) & (buff_size/4 - 1) ]=data_r|flag_r;
             }
@@ -99,7 +106,7 @@ int main(int argc, char* argv[])
 	fp_out_l  = fopen("left.txt","w");
 	fp_out_r  = fopen("right.txt","w");
 	state=	APP_STATE_START;
-	buff_size=APP_OUTPUT_BUFF_SIZE;
+	buff_size=sizeof(av_ifc_buff_out);
 #ifdef MUTE_TEST	
 	while(1)
 	{
